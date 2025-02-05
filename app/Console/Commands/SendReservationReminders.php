@@ -2,9 +2,13 @@
 
 namespace App\Console\Commands;
 
+use App\Jobs\SendReminderJob;
 use App\Models\Reservation;
 use App\Notifications\ReservationReminderNotification;
 use Illuminate\Console\Command;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Queue;
 
 class SendReservationReminders extends Command
 {
@@ -13,14 +17,17 @@ class SendReservationReminders extends Command
 
     public function handle()
     {
-        $reservations = Reservation::whereBetween('reservation_time', [
-            now(), now()->addHours(24)
-        ])->get();
-
+        $now = now()->format('Y-m-d H:i'); // Current time
+    
+        $reservations = Reservation::whereRaw("DATE_FORMAT(reservation_time, '%Y-%m-%d %H:%i') = ?", [$now])
+            ->where('notified', false)
+            ->get();
+    
         foreach ($reservations as $reservation) {
-            $reservation->notify(new ReservationReminderNotification($reservation));
+            Queue::push(new SendReminderJob($reservation));
+            $reservation->update(['notified' => true]); // Mark as notified
         }
-
-        $this->info('Reminders sent successfully!');
+    
+        $this->info('Reminders queued successfully!');
     }
 }
